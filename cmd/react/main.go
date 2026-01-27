@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/eastlaugh/agent/pkg/agents"
-	"github.com/eastlaugh/agent/pkg/llm"
+	"github.com/eastlaugh/agent/pkg/openai"
 )
 
 // --- Helper Functions ---
@@ -69,16 +69,16 @@ func main() {
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 
 	// 1. 初始化客户端
-	client := llm.NewClient(baseURL, apiKey, "qwen-plus")
+	client := openai.NewClient(baseURL, apiKey, "qwen-plus")
 
-	mathProficientAgent := agents.New(client,
+	mathProficientAgent := agents.New(client, nil,
 		add, "计算两个整数的和。参数：a, b（整数，用空格分隔）。",
 		multiply, "计算两个整数的乘积。参数：a, b（整数，用空格分隔）。",
 		square, "计算一个整数的平方。参数：n（整数）。",
 	)
 
 	// 2. 初始化 Agent 并注册多个工具
-	myAgent := agents.New(client,
+	myAgent := agents.New(client, nil,
 		getTime, "返回服务器当前的系统时间（RFC1123格式）。",
 		getRandom, "返回 0-100 之间的随机整数。",
 		add, "计算两个整数的和。参数：a, b（整数，用空格分隔）。",
@@ -91,7 +91,7 @@ func main() {
 
 	// 3. 运行多个复杂问题来测试框架
 
-	answer, err := myAgent.Run(os.Stdout, "请告诉我用户 2 的信息，并计算他的年龄加上 5 的平方是多少？然后告诉我现在的时间。")
+	_, answer, err := myAgent.Run(os.Stdout, nil, "请告诉我用户 2 的信息，并计算他的年龄加上 5 的平方是多少？然后告诉我现在的时间。")
 	if err != nil {
 		fmt.Printf("错误：%v\n", err)
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 func Test(t *testing.T) {
-	agt := New(nil,
+	agt := New(nil, nil,
 		func(a int, b int, str string) (int, string) {
 			return a + b, str
 		}, "函数描述",
@@ -15,6 +15,6 @@ func Test(t *testing.T) {
 		}, "哈哈",
 		fmt.Print, "打印输入内容",
 	)
-	println(agt.generateSystemPrompt())
+	println(agt.SystemPrompt())
 
 }

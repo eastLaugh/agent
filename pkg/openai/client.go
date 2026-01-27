@@ -1,10 +1,12 @@
-package llm
+package openai
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"time"
 )
@@ -21,12 +23,22 @@ type CompletionRequest struct {
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
 	Stop        []string  `json:"stop,omitempty"` // Important for ReAct to stop at "Observation:"
+	Stream      bool      `json:"stream,omitempty"`
 }
 
 // CompletionResponse represents the response from the OpenAI API.
 type CompletionResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
+	} `json:"choices"`
+}
+
+// StreamChunk represents a chunk in the streaming response.
+type StreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
 	} `json:"choices"`
 }
 
@@ -96,4 +108,72 @@ func (c *Client) Chat(messages []Message, stop []string) (string, error) {
 	}
 
 	return completionResp.Choices[0].Message.Content, nil
+}
+
+// ChatStream returns an iterator over streaming chat completion chunks.
+// Returns error if the streaming request fails.
+func (c *Client) ChatStream(messages []Message, stop []string) (iter.Seq[string], error) {
+	reqBody := CompletionRequest{
+		Model:       c.Model,
+		Messages:    messages,
+		Temperature: 0, // Deterministic for reasoning
+		Stop:        stop,
+		Stream:      true,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return func(yield func(string) bool) {
+		defer resp.Body.Close()
+		scanner := bufio.NewScanner(resp.Body)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+
+			// Remove "data: " prefix
+			if len(line) > 6 && line[:6] == "data: " {
+				line = line[6:]
+			}
+
+			if line == "[DONE]" {
+				break
+			}
+
+			var chunk StreamChunk
+			if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+				continue
+			}
+
+			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+				if !yield(chunk.Choices[0].Delta.Content) {
+					return
+				}
+			}
+		}
+	}, nil
 }

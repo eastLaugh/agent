@@ -13,8 +13,6 @@ import (
 	"github.com/eastlaugh/agent/pkg/openai"
 )
 
-// --- Helper Functions ---
-
 func getTime() string {
 	return time.Now().Format(time.RFC1123)
 }
@@ -55,8 +53,6 @@ func square(n int) int {
 	return n * n
 }
 
-// --- Main ---
-
 func main() {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
@@ -64,10 +60,8 @@ func main() {
 	}
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 
-	// 1. 初始化客户端
 	client := openai.NewClient(baseURL, apiKey, "qwen-plus")
 
-	// 2. 初始化 Agent 并注册工具
 	myAgent := agents.New(client, nil,
 		getTime, "返回服务器当前的系统时间（RFC1123格式）。",
 		getRandom, "返回 0-100 之间的随机整数。",
@@ -79,12 +73,15 @@ func main() {
 		square, "计算一个整数的平方。参数：n（整数）。",
 	)
 
-	// 3. 交互式对话
-	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
+	fmt.Println("欢迎使用 Agent 流式聊天系统！")
+	fmt.Println("此版本展示了流式输出功能，LLM 响应会实时显示。")
+	fmt.Println("输入 'exit' 或 'quit' 退出。")
+	fmt.Println(strings.Repeat("-", 50))
 
 	reader := bufio.NewReader(os.Stdin)
-	var messages []openai.Message
+
 	for {
+		fmt.Print("\n你：")
 		question, _ := reader.ReadString('\n')
 		question = strings.TrimSpace(question)
 
@@ -92,14 +89,21 @@ func main() {
 			continue
 		}
 
-		// 运行 Agent 并输出结果
-
-		newMessages, answer, err := myAgent.Run(os.Stdout, messages, question)
-		messages = newMessages
-		if err != nil {
-			panic(err)
+		if question == "exit" || question == "quit" {
+			fmt.Println("再见！")
+			break
 		}
-		fmt.Printf("%s\n", answer)
 
+		fmt.Println(strings.Repeat("-", 50))
+		fmt.Println("Agent 流式回复：")
+
+		_, answer, err := myAgent.RunStream(os.Stdout, nil, question)
+		if err != nil {
+			fmt.Printf("\n错误：%v\n", err)
+		} else {
+			fmt.Printf("\n\nAgent 最终答案：%s\n", answer)
+		}
+
+		fmt.Println(strings.Repeat("-", 50))
 	}
 }
