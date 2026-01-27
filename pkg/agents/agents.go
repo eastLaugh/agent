@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"reflect"
-	"regexp"
 	"strings"
 
 	"github.com/eastlaugh/agent/pkg/openai"
@@ -122,10 +121,6 @@ func (a *Agent) SystemPrompt() (prompt string) {
 开始！`, toolDescriptions, toolNames)
 }
 
-// 用于提取“动作”和“动作输入”的正则表达式
-var actionRegex = regexp.MustCompile(`动作：\s*(.+?)\n动作输入：\s*(.*)`)
-var finalAnswerRegex = regexp.MustCompile(`最终答案：\s*(.*)`)
-
 func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
 	if len(messages) == 0 {
 		messages = []openai.Message{
@@ -136,7 +131,6 @@ func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]
 	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
 
 	for i := 0; i < a.MaxSteps; i++ {
-		fmt.Fprintf(w, "--- 步骤 %d ---\n", i+1)
 
 		response, err := a.Client.Chat(messages, []string{"观察："})
 		if err != nil {
@@ -239,6 +233,75 @@ func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question strin
 	}
 
 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
+}
+
+func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.Seq[string], error) {
+	var used bool
+
+	if len(messages) == 0 {
+		messages = []openai.Message{
+			{Role: "system", Content: a.SystemPrompt()},
+		}
+	}
+	messages = append(messages, openai.Message{Role: "user", Content: question})
+	return func(yield func(string) bool) {
+		if used {
+			panic("agents: consumed iterator")
+		}
+		used = true
+
+		for i := 0; i < a.MaxSteps; i++ {
+
+			iter, err := a.Client.ChatStream(messages, []string{"观察："})
+			if err != nil {
+				panic(err)
+			}
+
+			var response strings.Builder
+			for chunk := range iter {
+				response.WriteString(chunk)
+				if !yield(chunk) {
+					return
+				}
+			}
+
+			responseText := response.String()
+
+			// 将 Agent 的回复添加到历史记录
+			messages = append(messages, openai.Message{Role: "assistant", Content: responseText})
+
+			// 最终答案
+			if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
+				return
+			}
+
+			// 解析动作
+			match := actionRegex.FindStringSubmatch(responseText)
+			if match == nil {
+				panic("没有最终答案，也没有动作")
+			}
+
+			toolName := strings.TrimSpace(match[1])
+			toolInput := strings.TrimSpace(match[2])
+
+			tool, ok := a.Tools[toolName]
+			var observation string
+			if !ok {
+				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
+			} else {
+				observation = tool.Run(toolInput)
+				log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
+			}
+
+			// 观察
+			obsMsg := fmt.Sprintf("观察：%s", observation)
+			messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
+			if !yield(obsMsg + "\n") {
+				return
+			}
+		}
+	}, nil
+
 }
 
 func (agt *Agent) AsTool() func(string) string {

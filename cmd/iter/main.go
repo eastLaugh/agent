@@ -2,8 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
-	"log"
+	"math"
 	"math/rand/v2"
 	"os"
 	"strings"
@@ -58,16 +59,15 @@ func square(n int) int {
 // --- Main ---
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("请设置 OPENAI_API_KEY 环境变量。")
-	}
-	baseURL := os.Getenv("OPENAI_BASE_URL")
+	ctx, cancel := context.WithCancel(context.Background())
+	go Animation(ctx, 10, "正在启动 Agent 聊天系统")
+	time.Sleep(2 * time.Second)
+	cancel()
 
-	// 1. 初始化客户端
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	baseURL := os.Getenv("OPENAI_BASE_URL")
 	client := openai.NewClient(baseURL, apiKey, "qwen-plus")
 
-	// 2. 初始化 Agent 并注册工具
 	myAgent := agents.New(client, nil,
 		getTime, "返回服务器当前的系统时间（RFC1123格式）。",
 		getRandom, "返回 0-100 之间的随机整数。",
@@ -79,7 +79,6 @@ func main() {
 		square, "计算一个整数的平方。参数：n（整数）。",
 	)
 
-	// 3. 交互式对话
 	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -98,10 +97,33 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		for chunk := range iter {
-			fmt.Print(chunk)
+
+		{
+			iter := agents.ReactIter(iter)
+			for state, chunk := range iter {
+				fmt.Printf("%d: %s", state, chunk)
+			}
 		}
+
 		fmt.Println("\n" + strings.Repeat("-", 50))
+	}
+}
+
+func Animation(ctx context.Context, maxDots float64, tooltip string) {
+	var tk = time.NewTicker(100 * time.Millisecond)
+	defer tk.Stop()
+	for {
+
+		select {
+		case <-ctx.Done():
+			fmt.Print("\r\033[K") // 清除动画行
+			return
+		case <-tk.C:
+			// \r 回到行首，\033[K 是清除从光标到行末的内容，防止残留
+			y := math.Sin(float64(time.Now().UnixNano()) / 1e9 * 2 * math.Pi)
+			y++
+			fmt.Printf("\r%s %s\033[K", tooltip, strings.Repeat(".", int(maxDots*y)))
+		}
 
 	}
 }
