@@ -23,7 +23,7 @@ vendor/
 .sum/
 
 # IDE and editor files
-.vscode/
+# .vscode/
 .idea/
 *.swp
 *.swo
