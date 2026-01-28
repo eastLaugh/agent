@@ -91,10 +91,11 @@ func main() {
 
 	// 3. 运行多个复杂问题来测试框架
 
-	_, answer, err := myAgent.Run(os.Stdout, nil, "请告诉我用户 2 的信息，并计算他的年龄加上 5 的平方是多少？然后告诉我现在的时间。")
+	iter, err := myAgent.RunStreamIter(nil, "请告诉我用户 2 的信息，并计算他的年龄加上 5 的平方是多少？然后告诉我现在的时间。")
 	if err != nil {
 		fmt.Printf("错误：%v\n", err)
 	}
-	fmt.Printf("%s\n", answer)
-
+	for chunk := range iter {
+		fmt.Print(chunk)
+	}
 }

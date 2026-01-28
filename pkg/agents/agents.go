@@ -278,7 +278,7 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 			// 解析动作
 			match := actionRegex.FindStringSubmatch(responseText)
 			if match == nil {
-				panic("没有最终答案，也没有动作")
+				panic("没有最终答案，也没有动作: " + responseText)
 			}
 
 			toolName := strings.TrimSpace(match[1])

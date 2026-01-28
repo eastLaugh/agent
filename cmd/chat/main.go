@@ -93,13 +93,13 @@ func main() {
 		}
 
 		// 运行 Agent 并输出结果
-
-		newMessages, answer, err := myAgent.Run(os.Stdout, messages, question)
-		messages = newMessages
+		iter, err := myAgent.RunStreamIter(messages, question)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("%s\n", answer)
-
+		for chunk := range iter {
+			fmt.Print(chunk)
+		}
+		fmt.Println()
 	}
 }

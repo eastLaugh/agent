@@ -61,7 +61,7 @@ func square(n int) int {
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	go Animation(ctx, 10, "正在启动 Agent 聊天系统")
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 	cancel()
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -101,7 +101,18 @@ func main() {
 		{
 			iter := agents.ReactIter(iter)
 			for state, chunk := range iter {
-				fmt.Printf("%d: %s", state, chunk)
+				switch state {
+				case agents.Thinking:
+					fmt.Print(Gray(chunk))
+				case agents.Acting:
+					fmt.Print(Blue(chunk))
+				case agents.Observing:
+					fmt.Print(Red(chunk))
+				case agents.Answering:
+					fmt.Print(chunk)
+				default:
+					panic(state)
+				}
 			}
 		}
 
@@ -126,4 +137,20 @@ func Animation(ctx context.Context, maxDots float64, tooltip string) {
 		}
 
 	}
+}
+
+func Red(input string) string {
+	return fmt.Sprintf("\033[31m%s\033[0m", input)
+}
+
+func Green(input string) string {
+	return fmt.Sprintf("\033[32m%s\033[0m", input)
+}
+
+func Blue(input string) string {
+	return fmt.Sprintf("\033[34m%s\033[0m", input)
+}
+
+func Gray(input string) string {
+	return fmt.Sprintf("\033[90m%s\033[0m", input)
 }
