@@ -71,6 +71,14 @@ type Client interface {
 	ChatStream(messages []openai.Message, stop []string) (iter.Seq[string], error)
 }
 
+// New 创建一个新的 ReAct Agent，Prompt 经由 Prompter 包装，args 为多个工具，以 Func, Desc (string) 配对传入
+// 如果工具中需要包含 Agent 自身，像这样:
+//
+//	var agt *agents.Agent
+//	agt = agents.New(client, nil,
+//		rand.IntN, "生成随机数",
+//		agt.AsTool(), "...",
+//	)
 func New(client Client, Prompter func(string) string, args ...any) *Agent {
 	if Prompter == nil {
 		Prompter = func(prompt string) string { return prompt }
@@ -95,7 +103,7 @@ func New(client Client, Prompter func(string) string, args ...any) *Agent {
 			panic("agents: invalid func")
 		}
 
-		agent.Add(fn, desc)
+		agent.add(fn, desc)
 	}
 	return agent
 }
@@ -128,120 +136,9 @@ func (a *Agent) SystemPrompt() (prompt string) {
 开始！`, toolDescriptions.String(), toolNames)
 }
 
-// Deprecated: Use RunStreamIter instead.
-// func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
-// 	if len(messages) == 0 {
-// 		messages = []openai.Message{
-// 			{Role: "system", Content: a.SystemPrompt()},
-// 		}
-// 	}
-
-// 	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
-
-// 	for i := 0; i < a.MaxSteps; i++ {
-
-// 		response, err := a.Client.Chat(messages, []string{"观察："})
-// 		if err != nil {
-// 			return nil, "", fmt.Errorf("LLM 错误: %v", err)
-// 		}
-
-// 		fmt.Fprintf(w, "%s\n", response)
-
-// 		// 将 Agent 的回复添加到历史记录
-// 		messages = append(messages, openai.Message{Role: "assistant", Content: response})
-
-// 		// 检查最终答案
-// 		if match := finalAnswerRegex.FindStringSubmatch(response); match != nil {
-// 			return messages, strings.TrimSpace(match[1]), nil
-// 		}
-
-// 		// 解析动作
-// 		match := actionRegex.FindStringSubmatch(response)
-// 		if match == nil {
-// 			panic("没有最终答案，也没有动作")
-// 		}
-
-// 		toolName := strings.TrimSpace(match[1])
-// 		toolInput := strings.TrimSpace(match[2])
-
-// 		tool, ok := a.Tools[toolName]
-// 		var observation string
-// 		if !ok {
-// 			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
-// 		} else {
-// 			observation = tool.Run(toolInput)
-// 			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
-// 		}
-
-// 		// 观察
-// 		obsMsg := fmt.Sprintf("观察：%s", observation)
-// 		fmt.Fprintf(w, "%s\n", obsMsg)
-// 		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
-// 	}
-
-// 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
-// }
-
-// // Deprecated: use RunStreamIter instead.
-// func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
-// 	if len(messages) == 0 {
-// 		messages = []openai.Message{
-// 			{Role: "system", Content: a.SystemPrompt()},
-// 		}
-// 	}
-// 	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
-
-// 	for i := 0; i < a.MaxSteps; i++ {
-// 		fmt.Fprintf(w, "--- 步骤 %d ---\n", i+1)
-
-// 		iter, err := a.Client.ChatStream(messages, []string{"观察："})
-// 		if err != nil {
-// 			return nil, "", fmt.Errorf("LLM 错误: %v", err)
-// 		}
-
-// 		var response strings.Builder
-// 		for chunk := range iter {
-// 			fmt.Fprint(w, chunk)
-// 			response.WriteString(chunk)
-// 		}
-
-// 		fmt.Fprintf(w, "\n")
-// 		responseText := response.String()
-
-// 		// 将 Agent 的回复添加到历史记录
-// 		messages = append(messages, openai.Message{Role: "assistant", Content: responseText})
-
-// 		// 检查最终答案
-// 		if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
-// 			return messages, strings.TrimSpace(match[1]), nil
-// 		}
-
-// 		// 解析动作
-// 		match := actionRegex.FindStringSubmatch(responseText)
-// 		if match == nil {
-// 			panic("没有最终答案，也没有动作")
-// 		}
-
-// 		toolName := strings.TrimSpace(match[1])
-// 		toolInput := strings.TrimSpace(match[2])
-
-// 		tool, ok := a.Tools[toolName]
-// 		var observation string
-// 		if !ok {
-// 			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
-// 		} else {
-// 			observation = tool.Run(toolInput)
-// 			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
-// 		}
-
-// 		// 观察
-// 		obsMsg := fmt.Sprintf("观察：%s", observation)
-// 		fmt.Fprintf(w, "%s\n", obsMsg)
-// 		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
-// 	}
-
-// 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
-// }
+// 当 Tool 返回观察结果时，该 Message 的 Role 使用 "system"，这是一种反模式。一些 AI Provider，如deepseek，可能会导致预期的行为
+// 为了兼容 Open AI API，仍然使用 user 作为观察的 role
+const X = "user"
 
 func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[string], <-chan []openai.Message) {
 
@@ -290,7 +187,7 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 			// 解析动作
 			match := actionRegex.FindStringSubmatch(Text)
 			if match == nil {
-				messages = append(messages, openai.Message{Role: "system", Content: "你没有遵循ReAct。你没有输出最终答案，也没有输出动作。请严格按照 ReAct 格式进行。上一条消息将被忽略。Continue!"})
+				messages = append(messages, openai.Message{Role: X, Content: "你没有遵循ReAct。你没有输出最终答案，也没有输出动作。请严格按照 ReAct 格式进行。上一条消息将被忽略。Continue!"})
 				continue
 			}
 
@@ -308,7 +205,7 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 
 			// 观察
 			obsMsg := fmt.Sprintf("观察：%s", observation)
-			messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
+			messages = append(messages, openai.Message{Role: X, Content: obsMsg})
 			if !yield(obsMsg + "\n") {
 				return
 			}
@@ -332,7 +229,7 @@ func (a *Agent) AsTool() func(string) string {
 	}
 }
 
-func (agt *Agent) Add(fn any, desc string) {
+func (agt *Agent) add(fn any, desc string) {
 	if reflect.TypeOf(fn).Kind() != reflect.Func {
 		panic("agents: invalid func")
 	}
