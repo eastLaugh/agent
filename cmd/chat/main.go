@@ -93,7 +93,7 @@ func main() {
 		}
 
 		// 运行 Agent 并输出结果
-		iter, err := myAgent.RunStreamIter(messages, question)
+		iter, ch, err := myAgent.RunStreamIter(messages, question)
 		if err != nil {
 			panic(err)
 		}
@@ -101,5 +101,6 @@ func main() {
 			fmt.Print(chunk)
 		}
 		fmt.Println()
+		messages = <-ch
 	}
 }

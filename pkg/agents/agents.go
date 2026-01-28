@@ -121,6 +121,7 @@ func (a *Agent) SystemPrompt() (prompt string) {
 开始！`, toolDescriptions, toolNames)
 }
 
+// Deprecated: Use RunStreamIter instead.
 func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
 	if len(messages) == 0 {
 		messages = []openai.Message{
@@ -174,7 +175,7 @@ func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]
 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
 }
 
-// RunStream runs the agent with streaming output using iterators
+// Deprecated: use RunStreamIter instead.
 func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
 	if len(messages) == 0 {
 		messages = []openai.Message{
@@ -235,8 +236,7 @@ func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question strin
 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
 }
 
-func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.Seq[string], error) {
-	var used bool
+func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.Seq[string], <-chan []openai.Message, error) {
 
 	if len(messages) == 0 {
 		messages = []openai.Message{
@@ -244,12 +244,17 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 		}
 	}
 	messages = append(messages, openai.Message{Role: "user", Content: question})
+
+	var ch = make(chan []openai.Message, 1)
+	var consumed bool
 	return func(yield func(string) bool) {
-		if used {
+		if consumed {
 			panic("agents: consumed iterator")
 		}
-		used = true
+		consumed = true
 
+		// 首次消费迭代器
+		defer close(ch)
 		for i := 0; i < a.MaxSteps; i++ {
 
 			iter, err := a.Client.ChatStream(messages, []string{"观察："})
@@ -272,7 +277,7 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 
 			// 最终答案
 			if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
-				return
+				goto FinalAnswer
 			}
 
 			// 解析动作
@@ -290,7 +295,7 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
 			} else {
 				observation = tool.Run(toolInput)
-				log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
+				// log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
 			}
 
 			// 观察
@@ -300,7 +305,11 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 				return
 			}
 		}
-	}, nil
+
+		panic("达到最大步数仍未找到最终答案")
+	FinalAnswer:
+		ch <- messages
+	}, ch, nil
 
 }
 
