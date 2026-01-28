@@ -67,9 +67,16 @@ func main() {
 
 	client := openai.NewClient(os.Getenv("OPENAI_BASE_URL"), os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
 
-	myAgent := agents.New(client, nil,
-		tools.SearchInternet, "在互联网上搜索信息",
-		tools.HttpGet, "发送 HTTP GET 请求",
+	var agt *agents.Agent
+	agt = agents.New(client, nil,
+		tools.SearchInternet, "在互联网上搜索信息，非必要不联网",
+		tools.HttpGet, "发送 HTTP GET 请求，非必要不联网",
+		// agt.AsTool(), "Agent 自调用，当思考复杂问题时，可深入分析，非必要不建议使用，避免循环递归",
+		// func(input string) (ok bool) {
+		// 	fmt.Println(Red(input))
+		// 	fmt.Scan(&ok)
+		// 	return
+		// }, "Humain-in-the-loop 工具，可向用户发送对话框，用户确认返回 true 取消返回 false。执行敏感操作前只需要确认一次，避免频繁打断",
 	)
 
 	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
@@ -86,11 +93,7 @@ func main() {
 
 		// 运行 Agent 并输出结果
 
-		iter, _, err := myAgent.RunStreamIter(messages, question)
-		if err != nil {
-			panic(err)
-		}
-
+		iter, _ := agt.Iter(messages, question)
 		{
 			iter := agents.ReactIter(iter)
 			for state, chunk := range iter {

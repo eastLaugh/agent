@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"math/rand/v2"
 	"os"
 	"strings"
@@ -56,19 +55,10 @@ func square(n int) int {
 	return n * n
 }
 
-// --- Main ---
-
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("请设置 OPENAI_API_KEY 环境变量。")
-	}
-	baseURL := os.Getenv("OPENAI_BASE_URL")
 
-	// 1. 初始化客户端
-	client := openai.NewClient(baseURL, apiKey, "qwen-plus")
+	client := openai.NewClient(os.Getenv("OPENAI_BASE_URL"), os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
 
-	// 2. 初始化 Agent 并注册工具
 	myAgent := agents.New(client, nil,
 		getTime, "返回服务器当前的系统时间（RFC1123格式）。",
 		getRandom, "返回 0-100 之间的随机整数。",
@@ -82,7 +72,6 @@ func main() {
 		tools.HttpGet, "发送 HTTP GET 请求",
 	)
 
-	// 3. 交互式对话
 	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -94,10 +83,7 @@ func main() {
 			continue
 		}
 
-		iter, ch, err := myAgent.RunStreamIter(messages, question)
-		if err != nil {
-			panic(err)
-		}
+		iter, ch := myAgent.Iter(messages, question)
 		for chunk := range iter {
 			fmt.Print(chunk)
 		}

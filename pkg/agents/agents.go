@@ -2,10 +2,8 @@ package agents
 
 import (
 	"fmt"
-	"io"
 	"iter"
 	"log"
-	"os"
 	"reflect"
 	"strings"
 
@@ -19,10 +17,17 @@ type tool struct {
 	Func        any
 }
 
-func (t *tool) Run(input string) string {
+func (t *tool) Run(input string) (output string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("工具 [%s] 执行时发生恐慌: %v", t.Name, r)
+			output = fmt.Sprintf("工具 %s 执行时发生恐慌: %v", t.Name, r)
+			log.Println(output)
+		}
+	}()
+	defer func() {
+		output = strings.TrimSpace(output)
+		if output == "" {
+			panic("tool returned empty string")
 		}
 	}()
 
@@ -55,10 +60,10 @@ func (t *tool) Run(input string) string {
 }
 
 type Agent struct {
-	Client   Client
-	Tools    map[string]tool
-	MaxSteps int
-	Prompter func(string) string
+	client   Client
+	tools    map[string]tool
+	maxSteps int
+	prompter func(string) string
 }
 
 type Client interface {
@@ -67,11 +72,15 @@ type Client interface {
 }
 
 func New(client Client, Prompter func(string) string, args ...any) *Agent {
+	if Prompter == nil {
+		Prompter = func(prompt string) string { return prompt }
+	}
+
 	var agent = &Agent{
-		Client:   client,
-		Tools:    make(map[string]tool),
-		MaxSteps: 10,
-		Prompter: Prompter,
+		client:   client,
+		tools:    make(map[string]tool),
+		maxSteps: 10,
+		prompter: Prompter,
 	}
 
 	for i := 0; i < len(args); i += 2 {
@@ -93,18 +102,16 @@ func New(client Client, Prompter func(string) string, args ...any) *Agent {
 
 func (a *Agent) SystemPrompt() (prompt string) {
 	defer func() {
-		if a.Prompter != nil {
-			prompt = a.Prompter(prompt)
-		}
+		prompt = a.prompter(prompt)
 	}()
 	var toolDescriptions strings.Builder
 	var toolNames []string
 
-	for name, tool := range a.Tools {
+	for name, tool := range a.tools {
 		fmt.Fprintf(&toolDescriptions, "// %s\n%s%s\n ", tool.Description, name, util.MarshalFunc(tool.Func))
 		toolNames = append(toolNames, name)
 	}
-	return fmt.Sprintf(`尽可能回答以下问题。你可以使用以下工具：
+	return fmt.Sprintf(`你是一个 ReAct Agent，尽可能回答以下问题。你可以使用以下工具：
 
 %s
 
@@ -122,121 +129,121 @@ func (a *Agent) SystemPrompt() (prompt string) {
 }
 
 // Deprecated: Use RunStreamIter instead.
-func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
-	if len(messages) == 0 {
-		messages = []openai.Message{
-			{Role: "system", Content: a.SystemPrompt()},
-		}
-	}
+// func (a *Agent) Run(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
+// 	if len(messages) == 0 {
+// 		messages = []openai.Message{
+// 			{Role: "system", Content: a.SystemPrompt()},
+// 		}
+// 	}
 
-	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
+// 	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
 
-	for i := 0; i < a.MaxSteps; i++ {
+// 	for i := 0; i < a.MaxSteps; i++ {
 
-		response, err := a.Client.Chat(messages, []string{"观察："})
-		if err != nil {
-			return nil, "", fmt.Errorf("LLM 错误: %v", err)
-		}
+// 		response, err := a.Client.Chat(messages, []string{"观察："})
+// 		if err != nil {
+// 			return nil, "", fmt.Errorf("LLM 错误: %v", err)
+// 		}
 
-		fmt.Fprintf(w, "%s\n", response)
+// 		fmt.Fprintf(w, "%s\n", response)
 
-		// 将 Agent 的回复添加到历史记录
-		messages = append(messages, openai.Message{Role: "assistant", Content: response})
+// 		// 将 Agent 的回复添加到历史记录
+// 		messages = append(messages, openai.Message{Role: "assistant", Content: response})
 
-		// 检查最终答案
-		if match := finalAnswerRegex.FindStringSubmatch(response); match != nil {
-			return messages, strings.TrimSpace(match[1]), nil
-		}
+// 		// 检查最终答案
+// 		if match := finalAnswerRegex.FindStringSubmatch(response); match != nil {
+// 			return messages, strings.TrimSpace(match[1]), nil
+// 		}
 
-		// 解析动作
-		match := actionRegex.FindStringSubmatch(response)
-		if match == nil {
-			panic("没有最终答案，也没有动作")
-		}
+// 		// 解析动作
+// 		match := actionRegex.FindStringSubmatch(response)
+// 		if match == nil {
+// 			panic("没有最终答案，也没有动作")
+// 		}
 
-		toolName := strings.TrimSpace(match[1])
-		toolInput := strings.TrimSpace(match[2])
+// 		toolName := strings.TrimSpace(match[1])
+// 		toolInput := strings.TrimSpace(match[2])
 
-		tool, ok := a.Tools[toolName]
-		var observation string
-		if !ok {
-			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
-		} else {
-			observation = tool.Run(toolInput)
-			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
-		}
+// 		tool, ok := a.Tools[toolName]
+// 		var observation string
+// 		if !ok {
+// 			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
+// 		} else {
+// 			observation = tool.Run(toolInput)
+// 			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
+// 		}
 
-		// 观察
-		obsMsg := fmt.Sprintf("观察：%s", observation)
-		fmt.Fprintf(w, "%s\n", obsMsg)
-		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
-	}
+// 		// 观察
+// 		obsMsg := fmt.Sprintf("观察：%s", observation)
+// 		fmt.Fprintf(w, "%s\n", obsMsg)
+// 		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
+// 	}
 
-	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
-}
+// 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
+// }
 
-// Deprecated: use RunStreamIter instead.
-func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
-	if len(messages) == 0 {
-		messages = []openai.Message{
-			{Role: "system", Content: a.SystemPrompt()},
-		}
-	}
-	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
+// // Deprecated: use RunStreamIter instead.
+// func (a *Agent) RunStream(w io.Writer, messages []openai.Message, question string) ([]openai.Message, string, error) {
+// 	if len(messages) == 0 {
+// 		messages = []openai.Message{
+// 			{Role: "system", Content: a.SystemPrompt()},
+// 		}
+// 	}
+// 	messages = append(messages, openai.Message{Role: "user", Content: fmt.Sprintf("%s", question)})
 
-	for i := 0; i < a.MaxSteps; i++ {
-		fmt.Fprintf(w, "--- 步骤 %d ---\n", i+1)
+// 	for i := 0; i < a.MaxSteps; i++ {
+// 		fmt.Fprintf(w, "--- 步骤 %d ---\n", i+1)
 
-		iter, err := a.Client.ChatStream(messages, []string{"观察："})
-		if err != nil {
-			return nil, "", fmt.Errorf("LLM 错误: %v", err)
-		}
+// 		iter, err := a.Client.ChatStream(messages, []string{"观察："})
+// 		if err != nil {
+// 			return nil, "", fmt.Errorf("LLM 错误: %v", err)
+// 		}
 
-		var response strings.Builder
-		for chunk := range iter {
-			fmt.Fprint(w, chunk)
-			response.WriteString(chunk)
-		}
+// 		var response strings.Builder
+// 		for chunk := range iter {
+// 			fmt.Fprint(w, chunk)
+// 			response.WriteString(chunk)
+// 		}
 
-		fmt.Fprintf(w, "\n")
-		responseText := response.String()
+// 		fmt.Fprintf(w, "\n")
+// 		responseText := response.String()
 
-		// 将 Agent 的回复添加到历史记录
-		messages = append(messages, openai.Message{Role: "assistant", Content: responseText})
+// 		// 将 Agent 的回复添加到历史记录
+// 		messages = append(messages, openai.Message{Role: "assistant", Content: responseText})
 
-		// 检查最终答案
-		if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
-			return messages, strings.TrimSpace(match[1]), nil
-		}
+// 		// 检查最终答案
+// 		if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
+// 			return messages, strings.TrimSpace(match[1]), nil
+// 		}
 
-		// 解析动作
-		match := actionRegex.FindStringSubmatch(responseText)
-		if match == nil {
-			panic("没有最终答案，也没有动作")
-		}
+// 		// 解析动作
+// 		match := actionRegex.FindStringSubmatch(responseText)
+// 		if match == nil {
+// 			panic("没有最终答案，也没有动作")
+// 		}
 
-		toolName := strings.TrimSpace(match[1])
-		toolInput := strings.TrimSpace(match[2])
+// 		toolName := strings.TrimSpace(match[1])
+// 		toolInput := strings.TrimSpace(match[2])
 
-		tool, ok := a.Tools[toolName]
-		var observation string
-		if !ok {
-			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
-		} else {
-			observation = tool.Run(toolInput)
-			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
-		}
+// 		tool, ok := a.Tools[toolName]
+// 		var observation string
+// 		if !ok {
+// 			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
+// 		} else {
+// 			observation = tool.Run(toolInput)
+// 			log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
+// 		}
 
-		// 观察
-		obsMsg := fmt.Sprintf("观察：%s", observation)
-		fmt.Fprintf(w, "%s\n", obsMsg)
-		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
-	}
+// 		// 观察
+// 		obsMsg := fmt.Sprintf("观察：%s", observation)
+// 		fmt.Fprintf(w, "%s\n", obsMsg)
+// 		messages = append(messages, openai.Message{Role: "system", Content: obsMsg})
+// 	}
 
-	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
-}
+// 	return nil, "", fmt.Errorf("达到最大步数仍未找到最终答案")
+// }
 
-func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.Seq[string], <-chan []openai.Message, error) {
+func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[string], <-chan []openai.Message) {
 
 	if len(messages) == 0 {
 		messages = []openai.Message{
@@ -255,9 +262,9 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 
 		// 首次消费迭代器
 		defer close(ch)
-		for i := 0; i < a.MaxSteps; i++ {
+		for i := 0; i < a.maxSteps; i++ {
 
-			iter, err := a.Client.ChatStream(messages, []string{"观察："})
+			iter, err := a.client.ChatStream(messages, []string{"观察："})
 			if err != nil {
 				panic(err)
 			}
@@ -290,10 +297,10 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 			toolName := strings.TrimSpace(match[1])
 			toolInput := strings.TrimSpace(match[2])
 
-			tool, ok := a.Tools[toolName]
+			tool, ok := a.tools[toolName]
 			var observation string
 			if !ok {
-				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.Tools)
+				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
 			} else {
 				observation = tool.Run(toolInput)
 				// log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
@@ -310,17 +317,18 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 		panic("达到最大步数仍未找到最终答案")
 	FinalAnswer:
 		ch <- messages
-	}, ch, nil
+	}, ch
 
 }
 
-func (agt *Agent) AsTool() func(string) string {
+func (a *Agent) AsTool() func(string) string {
 	return func(input string) string {
-		_, result, err := agt.Run(os.Stderr, nil, input)
-		if err != nil {
-			return fmt.Sprintf("Error: %v", err)
+		it, _ := a.Iter(nil, input)
+		var result strings.Builder
+		for chunk := range it {
+			result.WriteString(chunk)
 		}
-		return result
+		return result.String()
 	}
 }
 
@@ -330,10 +338,10 @@ func (agt *Agent) Add(fn any, desc string) {
 	}
 
 	var name = util.GetFuncName(fn, false)
-	if _, ok := agt.Tools[name]; ok {
+	if _, ok := agt.tools[name]; ok {
 		panic("agents: redundant tool definition")
 	}
-	agt.Tools[name] = tool{
+	agt.tools[name] = tool{
 		Name:        name,
 		Description: desc,
 		Func:        fn,
