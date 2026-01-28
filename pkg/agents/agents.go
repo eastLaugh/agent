@@ -112,13 +112,13 @@ func (a *Agent) SystemPrompt() (prompt string) {
 
 思考：你应该总是思考该做什么
 动作：要采取的动作，应该是 %v 之一
-动作输入：动作的输入，对于多个参数以空格隔开，后端将使用 fmt.Sscan 传递给工具，即便函数没有参数，也需要提供空输入
+动作输入：动作的参数，对于多个参数以空格隔开，后端通过 fmt.Sscan 传递给工具，即便函数没有参数，也需要提供空输入
 观察：动作的结果
 ...（这种“思考/动作/动作输入/观察”可以重复多次）
 思考：我现在知道最终答案了
 最终答案：原始输入问题的最终答案
 
-开始！`, toolDescriptions, toolNames)
+开始！`, toolDescriptions.String(), toolNames)
 }
 
 // Deprecated: Use RunStreamIter instead.
@@ -270,20 +270,21 @@ func (a *Agent) RunStreamIter(messages []openai.Message, question string) (iter.
 				}
 			}
 
-			responseText := response.String()
+			Text := response.String()
 
 			// 将 Agent 的回复添加到历史记录
-			messages = append(messages, openai.Message{Role: "assistant", Content: responseText})
+			messages = append(messages, openai.Message{Role: "assistant", Content: Text})
 
 			// 最终答案
-			if match := finalAnswerRegex.FindStringSubmatch(responseText); match != nil {
+			if match := finalAnswerRegex.FindStringSubmatch(Text); match != nil {
 				goto FinalAnswer
 			}
 
 			// 解析动作
-			match := actionRegex.FindStringSubmatch(responseText)
+			match := actionRegex.FindStringSubmatch(Text)
 			if match == nil {
-				panic("没有最终答案，也没有动作: " + responseText)
+				messages = append(messages, openai.Message{Role: "system", Content: "你没有遵循ReAct。你没有输出最终答案，也没有输出动作。请严格按照 ReAct 格式进行。上一条消息将被忽略。Continue!"})
+				continue
 			}
 
 			toolName := strings.TrimSpace(match[1])

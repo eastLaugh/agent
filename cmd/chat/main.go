@@ -11,6 +11,7 @@ import (
 
 	"github.com/eastlaugh/agent/pkg/agents"
 	"github.com/eastlaugh/agent/pkg/openai"
+	"github.com/eastlaugh/agent/pkg/tools"
 )
 
 // --- Helper Functions ---
@@ -77,6 +78,8 @@ func main() {
 		strlen, "计算字符串的长度。参数：s（字符串）。",
 		getUserInfo, "查询用户信息。参数：userID（1-3）。",
 		square, "计算一个整数的平方。参数：n（整数）。",
+		tools.SearchInternet, "在互联网上搜索信息",
+		tools.HttpGet, "发送 HTTP GET 请求",
 	)
 
 	// 3. 交互式对话
@@ -87,12 +90,10 @@ func main() {
 	for {
 		question, _ := reader.ReadString('\n')
 		question = strings.TrimSpace(question)
-
 		if question == "" {
 			continue
 		}
 
-		// 运行 Agent 并输出结果
 		iter, ch, err := myAgent.RunStreamIter(messages, question)
 		if err != nil {
 			panic(err)
@@ -100,7 +101,7 @@ func main() {
 		for chunk := range iter {
 			fmt.Print(chunk)
 		}
-		fmt.Println()
 		messages = <-ch
+		fmt.Println()
 	}
 }

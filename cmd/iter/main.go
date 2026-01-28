@@ -12,6 +12,7 @@ import (
 
 	"github.com/eastlaugh/agent/pkg/agents"
 	"github.com/eastlaugh/agent/pkg/openai"
+	"github.com/eastlaugh/agent/pkg/tools"
 )
 
 // --- Helper Functions ---
@@ -64,19 +65,11 @@ func main() {
 	time.Sleep(1 * time.Second)
 	cancel()
 
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	baseURL := os.Getenv("OPENAI_BASE_URL")
-	client := openai.NewClient(baseURL, apiKey, "qwen-plus")
+	client := openai.NewClient(os.Getenv("OPENAI_BASE_URL"), os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
 
 	myAgent := agents.New(client, nil,
-		getTime, "返回服务器当前的系统时间（RFC1123格式）。",
-		getRandom, "返回 0-100 之间的随机整数。",
-		add, "计算两个整数的和。参数：a, b（整数，用空格分隔）。",
-		multiply, "计算两个整数的乘积。参数：a, b（整数，用空格分隔）。",
-		concat, "拼接两个字符串。参数：s1, s2（字符串，用空格分隔）。",
-		strlen, "计算字符串的长度。参数：s（字符串）。",
-		getUserInfo, "查询用户信息。参数：userID（1-3）。",
-		square, "计算一个整数的平方。参数：n（整数）。",
+		tools.SearchInternet, "在互联网上搜索信息",
+		tools.HttpGet, "发送 HTTP GET 请求",
 	)
 
 	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
@@ -115,8 +108,6 @@ func main() {
 				}
 			}
 		}
-
-		fmt.Println("\n" + strings.Repeat("-", 50))
 	}
 }
 
