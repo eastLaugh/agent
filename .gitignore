@@ -40,3 +40,5 @@ bin/
 .env
 .env.local
 .env.*.local
+
+log.txt

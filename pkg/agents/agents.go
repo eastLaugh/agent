@@ -24,39 +24,15 @@ func (t *tool) Run(input string) (output string) {
 			log.Println(output)
 		}
 	}()
-	defer func() {
-		output = strings.TrimSpace(output)
-		if output == "" {
-			panic("tool returned empty string")
-		}
-	}()
 
-	fn := reflect.ValueOf(t.Func)
-	typ := fn.Type()
-
-	var args []reflect.Value
-
-	// 处理多参数：使用 fmt.Sscan 解析输入
-	values := make([]any, typ.NumIn())
-	for i := 0; i < typ.NumIn(); i++ {
-		values[i] = reflect.New(typ.In(i)).Interface()
+	output, args := util.CallFunc(t.Func, input)
+	output = strings.TrimSpace(output)
+	if output == "" {
+		panic("tool returned empty string")
 	}
 
-	n, err := fmt.Sscan(input, values...)
-	if err != nil || n != typ.NumIn() {
-		panic(fmt.Sprintf("参数解析失败: 期望 %d 个参数，得到 %d 个，错误: %v\n", typ.NumIn(), n, err))
-	}
-
-	for _, v := range values {
-		args = append(args, reflect.ValueOf(v).Elem())
-	}
-
-	results := fn.Call(args)
-	if len(results) == 0 {
-		panic("divergent function")
-	}
-
-	return util.MarshalReturn(results)
+	log.Print(util.FormatToolLog(t.Name, t.Description, t.Func, args, output))
+	return output
 }
 
 type Agent struct {
@@ -143,8 +119,10 @@ const X = "user"
 func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[string], <-chan []openai.Message) {
 
 	if len(messages) == 0 {
+		sysPrompt := a.SystemPrompt()
+		log.Printf("[SystemPrompt]\n%s", sysPrompt)
 		messages = []openai.Message{
-			{Role: "system", Content: a.SystemPrompt()},
+			{Role: "system", Content: sysPrompt},
 		}
 	}
 	messages = append(messages, openai.Message{Role: "user", Content: question})
@@ -195,14 +173,13 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 			toolName := strings.TrimSpace(match[1])
 			toolInput := strings.TrimSpace(match[2])
 
-			tool, ok := a.tools[toolName]
-			var observation string
-			if !ok {
-				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
-			} else {
-				observation = tool.Run(toolInput)
-				log.Printf("已执行工具 %s，输入为 %s", toolName, toolInput)
-			}
+		tool, ok := a.tools[toolName]
+		var observation string
+		if !ok {
+			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
+		} else {
+			observation = tool.Run(toolInput)
+		}
 
 			// 观察
 			obsMsg := fmt.Sprintf("观察：%s", observation)
