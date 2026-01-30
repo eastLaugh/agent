@@ -64,7 +64,17 @@ func HumanInTheLoop(agt *agents.Agent, dialogue func() bool) func(string) bool {
 	return func(input string) bool {
 		return dialogue()
 	}
-
 }
 
-type Middleware[T any] func(next func(T) T) func(T) T
+// 目前还没想好怎么做 Langchain 的 Middleware，先放个雏形
+type Middleware[T, R any] func(T) R
+
+func chain[T, R any](next Middleware[T, R]) Middleware[T, R] {
+
+	return func(input T) R {
+		// 在这里可以添加前置逻辑
+		result := next(input)
+		// 在这里可以添加后置逻辑
+		return result
+	}
+}
