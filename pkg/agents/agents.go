@@ -181,7 +181,8 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 
 			// 最终答案
 			if match := finalAnswerRegex.FindStringSubmatch(Text); match != nil {
-				goto FinalAnswer
+				ch <- messages
+				return
 			}
 
 			// 解析动作
@@ -200,7 +201,7 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
 			} else {
 				observation = tool.Run(toolInput)
-				// log.Printf("已执行工具 [%s]，输入为 [%s]", toolName, toolInput)
+				log.Printf("已执行工具 %s，输入为 %s", toolName, toolInput)
 			}
 
 			// 观察
@@ -212,8 +213,6 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 		}
 
 		panic("达到最大步数仍未找到最终答案")
-	FinalAnswer:
-		ch <- messages
 	}, ch
 
 }

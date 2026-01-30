@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/eastlaugh/agent/pkg/agents"
 )
 
 // HttpGet 发送 HTTP GET 请求，带 10 秒超时，自动关闭响应体，返回响应体字符串或错误信息
@@ -57,24 +55,4 @@ func SearchInternet(query string) string {
 
 	// 复用 HttpGet（保持逻辑复用与统一错误格式）
 	return HttpGet(u)
-}
-
-// Human-in-the-Loop，将逻辑暴露给前端
-func HumanInTheLoop(agt *agents.Agent, dialogue func() bool) func(string) bool {
-	return func(input string) bool {
-		return dialogue()
-	}
-}
-
-// 目前还没想好怎么做 Langchain 的 Middleware，先放个雏形
-type Middleware[T, R any] func(T) R
-
-func chain[T, R any](next Middleware[T, R]) Middleware[T, R] {
-
-	return func(input T) R {
-		// 在这里可以添加前置逻辑
-		result := next(input)
-		// 在这里可以添加后置逻辑
-		return result
-	}
 }
