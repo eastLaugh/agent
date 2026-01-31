@@ -55,16 +55,16 @@ type Client interface {
 //		rand.IntN, "生成随机数",
 //		agt.AsTool(), "...",
 //	)
-func New(client Client, Prompter func(string) string, args ...any) *Agent {
-	if Prompter == nil {
-		Prompter = func(prompt string) string { return prompt }
+func New(client Client, prompter func(string) string, args ...any) *Agent {
+	if prompter == nil {
+		prompter = func(prompt string) string { return prompt }
 	}
 
 	var agent = &Agent{
 		client:   client,
 		tools:    make(map[string]tool),
 		maxSteps: 10,
-		prompter: Prompter,
+		prompter: prompter,
 	}
 
 	for i := 0; i < len(args); i += 2 {
@@ -137,7 +137,11 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 
 		// 首次消费迭代器
 		defer close(ch)
-		for i := 0; i < a.maxSteps; i++ {
+		var step int
+		for {
+			if step > a.maxSteps {
+				panic("达到最大步数仍未找到最终答案")
+			}
 
 			iter, err := a.client.ChatStream(messages, []string{"观察："})
 			if err != nil {
@@ -173,13 +177,13 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 			toolName := strings.TrimSpace(match[1])
 			toolInput := strings.TrimSpace(match[2])
 
-		tool, ok := a.tools[toolName]
-		var observation string
-		if !ok {
-			observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
-		} else {
-			observation = tool.Run(toolInput)
-		}
+			tool, ok := a.tools[toolName]
+			var observation string
+			if !ok {
+				observation = fmt.Sprintf("错误：找不到工具 '%s'。可用工具：%v", toolName, a.tools)
+			} else {
+				observation = tool.Run(toolInput)
+			}
 
 			// 观察
 			obsMsg := fmt.Sprintf("观察：%s", observation)
@@ -187,9 +191,9 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 			if !yield(obsMsg + "\n") {
 				return
 			}
-		}
 
-		panic("达到最大步数仍未找到最终答案")
+			step++
+		}
 	}, ch
 
 }
