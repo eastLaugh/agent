@@ -12,8 +12,6 @@ import (
 	"github.com/eastlaugh/agent/pkg/openai"
 )
 
-// --- Helper Functions ---
-
 func getTime() string {
 	return time.Now().Format(time.RFC1123)
 }

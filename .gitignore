@@ -42,3 +42,6 @@ bin/
 .env.*.local
 
 log.txt
+
+# Frontend (not part of core framework)
+web/

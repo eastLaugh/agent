@@ -20,6 +20,21 @@ const (
 	Answering
 )
 
+func (r ReAct) String() string {
+	switch r {
+	case Thinking:
+		return "thinking"
+	case Acting:
+		return "acting"
+	case Observing:
+		return "observing"
+	case Answering:
+		return "answering"
+	default:
+		return "unknown"
+	}
+}
+
 // 用于把纯文本迭代器转换为 React 风格的迭代器
 func ReactIter(it iter.Seq[string]) iter.Seq2[ReAct, string] {
 	return func(yield func(ReAct, string) bool) {
