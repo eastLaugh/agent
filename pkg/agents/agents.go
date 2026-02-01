@@ -1,7 +1,9 @@
 package agents
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"log"
 	"reflect"
@@ -9,7 +11,10 @@ import (
 
 	"github.com/eastlaugh/agent/pkg/openai"
 	"github.com/eastlaugh/agent/pkg/util"
+	"github.com/google/uuid"
 )
+
+var Logger = log.Default()
 
 type tool struct {
 	Name        string
@@ -21,7 +26,7 @@ func (t *tool) Run(input string) (output string) {
 	defer func() {
 		if r := recover(); r != nil {
 			output = fmt.Sprintf("工具 %s 执行时发生恐慌: %v", t.Name, r)
-			log.Println(output)
+			Logger.Println(output)
 		}
 	}()
 
@@ -31,7 +36,7 @@ func (t *tool) Run(input string) (output string) {
 		panic("tool returned empty string")
 	}
 
-	log.Print(util.FormatToolLog(t.Name, t.Description, t.Func, args, output))
+	Logger.Print(util.FormatToolLog(t.Name, t.Description, t.Func, args, output))
 	return output
 }
 
@@ -47,6 +52,19 @@ type Client interface {
 	ChatStream(messages []openai.Message, stop []string) (iter.Seq[string], error)
 }
 
+func checkPrompter(prompter *func(string) string) error {
+	if *prompter == nil {
+		*prompter = func(prompt string) string { return prompt }
+		return nil
+	}
+	needle := uuid.NewString()
+	haystack := (*prompter)(needle)
+	if !strings.Contains(haystack, needle) {
+		return errors.New("agents: prompter must include the original prompt")
+	}
+	return nil
+}
+
 // New 创建一个新的 ReAct Agent，Prompt 经由 Prompter 包装，args 为多个工具，以 Func, Desc (string) 配对传入
 // 如果工具中需要包含 Agent 自身，像这样:
 //
@@ -55,9 +73,9 @@ type Client interface {
 //		rand.IntN, "生成随机数",
 //		agt.AsTool(), "...",
 //	)
-func New(client Client, prompter func(string) string, args ...any) *Agent {
-	if prompter == nil {
-		prompter = func(prompt string) string { return prompt }
+func New(client Client, prompter func(oldPrompt string) (newPrompt string), args ...any) *Agent {
+	if err := checkPrompter(&prompter); err != nil {
+		panic(err)
 	}
 
 	var agent = &Agent{
@@ -95,6 +113,11 @@ func (a *Agent) SystemPrompt() (prompt string) {
 		fmt.Fprintf(&toolDescriptions, "// %s\n%s%s\n ", tool.Description, name, util.MarshalFunc(tool.Func))
 		toolNames = append(toolNames, name)
 	}
+
+	if len(a.tools) == 0 {
+		fmt.Fprintf(&toolDescriptions, "// 没有工具可用，你应该只进行一轮 ReAct 循环，直接得出最终答案。格式仍需保持。\n")
+	}
+
 	return fmt.Sprintf(`你是一个 ReAct Agent，尽可能回答以下问题。你可以使用以下工具：
 
 %s
@@ -120,7 +143,7 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 
 	if len(messages) == 0 {
 		sysPrompt := a.SystemPrompt()
-		log.Printf("[SystemPrompt]\n%s", sysPrompt)
+		Logger.Printf("\n[SystemPrompt]\n%s", sysPrompt)
 		messages = []openai.Message{
 			{Role: "system", Content: sysPrompt},
 		}
@@ -198,15 +221,20 @@ func (a *Agent) Iter(messages []openai.Message, question string) (iter.Seq[strin
 
 }
 
-func (a *Agent) AsTool() func(string) string {
-	return func(input string) string {
-		it, _ := a.Iter(nil, input)
-		var result strings.Builder
-		for chunk := range it {
-			result.WriteString(chunk)
+// 如果你不熟悉迭代器，可以使用此方法，替代 Iter
+func (a *Agent) Handle(w io.Writer, messages []openai.Message, question string) (finalAnswer string, newMessages []openai.Message) {
+	it, ch := a.Iter(messages, question)
+	for state, chunk := range ReactIter(it) {
+		fmt.Fprint(w, chunk)
+		if state == Answering {
+			finalAnswer += chunk
 		}
-		return result.String()
 	}
+	newMessages = <-ch
+	if newMessages == nil {
+		panic("agents: newMessages is nil")
+	}
+	return
 }
 
 func (agt *Agent) add(fn any, desc string) {
@@ -223,4 +251,10 @@ func (agt *Agent) add(fn any, desc string) {
 		Description: desc,
 		Func:        fn,
 	}
+}
+
+func (a *Agent) Serve(input string) string {
+	var b strings.Builder
+	_, _ = a.Handle(&b, nil, input)
+	return b.String()
 }

@@ -80,11 +80,7 @@ func main() {
 			continue
 		}
 
-		iter, ch := myAgent.Iter(messages, question)
-		for chunk := range iter {
-			fmt.Print(chunk)
-		}
-		messages = <-ch
+		_, messages = myAgent.Handle(os.Stdout, messages, question)
 		fmt.Println()
 	}
 }

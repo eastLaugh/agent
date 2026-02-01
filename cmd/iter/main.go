@@ -56,8 +56,7 @@ func main() {
 
 	client := openai.NewClient(os.Getenv("OPENAI_BASE_URL"), os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"))
 
-	var agt *agents.Agent
-	agt = agents.New(client, nil,
+	agt := agents.New(client, nil,
 		rand.IntN, "",
 		getUserInfo, "用户ID为1到3",
 		os.Getenv, "",
@@ -66,6 +65,9 @@ func main() {
 		tools.SearchInternet, "在互联网上搜索信息，非必要不联网",
 		tools.HttpGet, "发送 HTTP GET 请求，非必要不联网",
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	fmt.Println("欢迎使用 Agent 聊天系统！CTRL+C 退出。")
 
